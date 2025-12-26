@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hand Tracking - Cámara Frontal</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
+        canvas { position: absolute; top: 0; left: 0; }
+        #webcam { display: none; }
+        .ui { 
+            position: absolute; 
+            color: white; 
+            top: 20px; 
+            width: 100%; 
+            text-align: center; 
+            z-index: 10; 
+            pointer-events: none;
+            text-shadow: 0 0 10px rgba(0,255,255,0.8);
+            letter-spacing: 1px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="ui">USA TU DEDO ÍNDICE - MODO CÁMARA FRONTAL</div>
+    <video id="webcam" autoplay playsinline></video>
+    <canvas id="output_canvas"></canvas>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+
+    <script>
+        const video = document.getElementById('webcam');
+        const canvasElement = document.getElementById('output_canvas');
+        const ctx = canvasElement.getContext('2d');
+        
+        let particles = [];
+        let handX = 0;
+        let handY = 0;
+        let isHandVisible = false;
+
+        class Particle {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.size = Math.random() * 7 + 2;
+                this.speedX = (Math.random() - 0.5) * 12;
+                this.speedY = (Math.random() - 0.5) * 12;
+                // Colores eléctricos (Cian y Neón)
+                this.color = `hsl(${Math.random() * 40 + 170}, 100%, 60%)`;
+                this.life = 1;
+                this.decay = Math.random() * 0.03 + 0.01;
+            }
+            update() {
+                this.x += this.speedX;
+                this.y += this.speedY;
+                this.life -= this.decay;
+            }
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = this.life;
+                ctx.fillStyle = this.color;
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        function handleParticles() {
+            if (isHandVisible) {
+                for (let i = 0; i < 20; i++) {
+                    particles.push(new Particle(handX, handY));
+                }
+            }
+            for (let i = 0; i < particles.length; i++) {
+                particles[i].update();
+                particles[i].draw();
+                if (particles[i].life <= 0) {
+                    particles.splice(i, 1);
+                    i--;
+                }
+            }
+            if (particles.length > 600) particles.splice(0, 20);
+        }
+
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        hands.onResults((results) => {
+            // Fondo con rastro
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+            ctx.fillRect(0, 0, canvasElement.width, canvasElement.height);
+            
+            // Dibujar video en espejo (Modo Frontal)
+            ctx.save();
+            ctx.globalAlpha = 0.3;
+            ctx.translate(canvasElement.width, 0);
+            ctx.scale(-1, 1);
+            ctx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+            ctx.restore();
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                isHandVisible = true;
+                const landmark = results.multiHandLandmarks[0][8];
+                // Ajuste de coordenadas para el modo espejo
+                handX = (1 - landmark.x) * canvasElement.width;
+                handY = landmark.y * canvasElement.height;
+            } else {
+                isHandVisible = false;
+            }
+            
+            handleParticles();
+        });
+
+        async function start() {
+            canvasElement.width = window.innerWidth;
+            canvasElement.height = window.innerHeight;
+            
+            try {
+                // Forzamos el uso de la cámara frontal (user)
+                const constraints = {
+                    video: {
+                        facingMode: "user",
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    }
+                };
+                
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = stream;
+                
+                video.addEventListener('loadeddata', () => {
+                    const predict = async () => {
+                        await hands.send({image: video});
+                        requestAnimationFrame(predict);
+                    };
+                    predict();
+                });
+            } catch (err) {
+                alert("Error al acceder a la cámara frontal: " + err);
+            }
+        }
+
+        start();
+
+        window.addEventListener('resize', () => {
+            canvasElement.width = window.innerWidth;
+            canvasElement.height = window.innerHeight;
+        });
+    </script>
+</body>
+</html>
